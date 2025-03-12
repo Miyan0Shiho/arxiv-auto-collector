@@ -1,0 +1,39 @@
+name: Weekly Arxiv Collection
+
+on:
+  schedule:
+    # 北京时间周一12:00 = UTC时间周日16:00 (UTC+8)
+    - cron: '0 16 * * 0'  # 每周日UTC时间16:00运行（即周一00:00 CST）
+    
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  collect-papers:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run collection script
+      env:
+        TZ: Asia/Shanghai  # 设置时区
+      run: python arxiv_collector.py
+
+    - name: Commit results
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git add .
+        git commit -m "Auto: Weekly paper update" || echo "No changes to commit"
+        git push
