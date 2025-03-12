@@ -1,52 +1,42 @@
+# arxiv_collector.py
 import arxiv
 import datetime
 import os
 import requests
 from PyPDF2 import PdfReader
-from urllib.parse import urlparse
 import time
 
-# 配置常量
-TEMP_PDF_PATH = os.path.join(os.getcwd(), "temp.pdf")  # 适配GitHub Actions环境
+TEMP_PDF_PATH = os.path.join(os.getcwd(), "temp.pdf")
 
 def sanitize_filename(title):
-    """生成安全的文件名"""
     return "".join(c if c.isalnum() or c in (' ', '_') else '_' for c in title)[:50].strip()
 
 def main():
-    # 计算日期范围
     end_date = datetime.datetime.now()
     start_date = end_date - datetime.timedelta(days=7)
     
-    # 配置arXiv搜索
     search = arxiv.Search(
         query=f'rag AND submittedDate:[{start_date.strftime("%Y%m%d")} TO {end_date.strftime("%Y%m%d")}]',
         sort_by=arxiv.SortCriterion.SubmittedDate,
         sort_order=arxiv.SortOrder.Descending
     )
     
-    # 初始化客户端
     client = arxiv.Client(page_size=100, delay_seconds=3, num_retries=5)
     
-    # 处理每篇论文
     for result in client.results(search):
         try:
-            # 生成周目录
             published_date = result.published
             year, week_num, _ = published_date.isocalendar()
             folder_name = f"{year}-W{week_num:02d}"
             os.makedirs(folder_name, exist_ok=True)
             
-            # 下载PDF
             pdf_url = result.pdf_url
             response = requests.get(pdf_url, timeout=10)
             response.raise_for_status()
             
-            # 保存临时PDF
             with open(TEMP_PDF_PATH, "wb") as f:
                 f.write(response.content)
             
-            # 解析PDF文本
             text_content = []
             with open(TEMP_PDF_PATH, "rb") as f:
                 reader = PdfReader(f)
@@ -54,7 +44,10 @@ def main():
                     if page_text := page.extract_text():
                         text_content.append(page_text)
             
-            # 生成Markdown内容
+            # 修复点：将换行符连接移到f-string外部
+            full_text_separator = '\n\n'
+            full_text = full_text_separator.join(text_content)
+            
             md_content = (
                 f"# {result.title}\n\n"
                 f"**Authors**: {', '.join([a.name for a in result.authors])}\n\n"
@@ -63,10 +56,9 @@ def main():
                 "## Abstract\n"
                 f"{result.summary}\n\n"
                 "## Full Text\n"
-                f"\n\n<!-- PDF content starts -->\n\n{'\n\n'.join(text_content)}"
+                f"\n\n<!-- PDF content starts -->\n\n{full_text}"
             )
             
-            # 保存Markdown文件
             safe_title = sanitize_filename(result.title)
             md_filename = os.path.join(folder_name, f"{safe_title}.md")
             
@@ -77,10 +69,10 @@ def main():
             
         except Exception as e:
             print(f"❌ 处理论文《{result.title}》失败：{str(e)}")
-            time.sleep(5)  # 错误后暂停
+            time.sleep(5)
         finally:
             if os.path.exists(TEMP_PDF_PATH):
-                os.remove(TEMP_PDF_PATH)  # 清理临时文件
+                os.remove(TEMP_PDF_PATH)
 
 if __name__ == "__main__":
     main()
