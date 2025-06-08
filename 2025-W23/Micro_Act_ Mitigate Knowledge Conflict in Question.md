@@ -1,0 +1,1933 @@
+# Micro-Act: Mitigate Knowledge Conflict in Question Answering via Actionable Self-Reasoning
+
+**Authors**: Nan Huo, Jinyang Li, Bowen Qin, Ge Qu, Xiaolong Li, Xiaodong Li, Chenhao Ma, Reynold Cheng
+
+**Published**: 2025-06-05 17:33:02
+
+**PDF URL**: [http://arxiv.org/pdf/2506.05278v1](http://arxiv.org/pdf/2506.05278v1)
+
+## Abstract
+Retrieval-Augmented Generation (RAG) systems commonly suffer from Knowledge
+Conflicts, where retrieved external knowledge contradicts the inherent,
+parametric knowledge of large language models (LLMs). It adversely affects
+performance on downstream tasks such as question answering (QA). Existing
+approaches often attempt to mitigate conflicts by directly comparing two
+knowledge sources in a side-by-side manner, but this can overwhelm LLMs with
+extraneous or lengthy contexts, ultimately hindering their ability to identify
+and mitigate inconsistencies. To address this issue, we propose Micro-Act a
+framework with a hierarchical action space that automatically perceives context
+complexity and adaptively decomposes each knowledge source into a sequence of
+fine-grained comparisons. These comparisons are represented as actionable
+steps, enabling reasoning beyond the superficial context. Through extensive
+experiments on five benchmark datasets, Micro-Act consistently achieves
+significant increase in QA accuracy over state-of-the-art baselines across all
+5 datasets and 3 conflict types, especially in temporal and semantic types
+where all baselines fail significantly. More importantly, Micro-Act exhibits
+robust performance on non-conflict questions simultaneously, highlighting its
+practical value in real-world RAG applications.
+
+## Full Text
+
+
+<!-- PDF content starts -->
+
+Micro-Act: Mitigate Knowledge Conflict in Question Answering via
+Actionable Self-Reasoning
+Nan Huo1, Jinyang Li1, Bowen Qin2*, Ge Qu1, Xiaolong Li1, Xiaodong Li3,
+Chenhao Ma4,Reynold Cheng1*
+1The University of Hong Kong,2BAAI
+3Xiamen University
+4The Chinese University of Hong Kong, Shenzhen
+huonan@connect.hku.hk ,bwqin@baai.ac.cn ,ckcheng@cs.hku.hk
+Abstract
+Retrieval-Augmented Generation (RAG) sys-
+tems commonly suffer from Knowledge Con-
+flicts , where retrieved external knowledge con-
+tradicts the inherent, parametric knowledge
+of large language models (LLMs). It ad-
+versely affects performance on downstream
+tasks such as question answering (QA). Ex-
+isting approaches often attempt to mitigate con-
+flicts by directly comparing two knowledge
+sources in a side-by-side manner, but this can
+overwhelm LLMs with extraneous or lengthy
+contexts, ultimately hindering their ability to
+identify and mitigate inconsistencies. To ad-
+dress this issue, we propose MICRO -ACT, a
+framework with a hierarchical action space
+that automatically perceives context complex-
+ity and adaptively decomposes each knowledge
+source into a sequence of fine-grained compar-
+isons. These comparisons are represented as
+actionable steps, enabling reasoning beyond
+the superficial context. Through extensive ex-
+periments on five benchmark datasets, MICRO -
+ACTconsistently achieves significant increase
+in QA accuracy over state-of-the-art baselines
+across all 5 datasets and 3 conflict types, espe-
+cially in temporal and semantic types where all
+baselines fail significantly. More importantly,
+MICRO -ACTexhibits robust performance on
+non-conflict questions simultaneously, high-
+lighting its practical value in real-world RAG
+applications. Code can be found at https:
+//github.com/Nan-Huo/Micro-Act .
+1 Introduction
+Recent advances in large language models (LLMs)
+have revolutionized natural language processing
+with their ability to understand and respond to di-
+verse user queries (Chang et al., 2024; Zhao et al.,
+2023). However, relying solely on parametric
+*Corresponding authors are Reynold Cheng and Bowen
+Qin.
+Q: What position does Paul Eugène Gillon currently hold?Retrieved Evidence: … … In 2010, Gillon was appointed as a deputy member of the Parliament of Norway ……Correct Answer: General Secretary of the Prefecture of Creuse.ICL-based Solutions:(a) Generic Reasoning: (e.g., COT)Let’s think step-by-step to answer the question:  1. Gillon was appointed as a deputy member of the Parliament   2. Answer: the deputy member of the Parliament. Step 2: Answer with retrieved evidence and knowledge generated:(c) Micro-Act: (Ours)Step 1: Locate fine-grained evidence-LLM conflict points1. ASSERT(General Secretary, Deputy member) à  Conflict!2. ASSERT(French, Norway) à  Conflict!3. ASSERT(Recently, 2010) à  Conflict!Step 2: Reason & Answer based on located conflict points.Answer:  General Secretary of the Prefecture of Creuse.(b) Generation-aided Reasoning: (e.g., GKP)Step 1: Generate some knowledge about Paul Eugène Gillon:  Recently,  Eugène Gillon has been appointed as the General   Secretary of the Prefecture of Creuse. In French … Two evidence have  conflict .                  Answer: I don’t know.Knowledge Generated by LLM:Recently,  Eugène Gillon has been appointed as the General Secretary of the Prefecture of Creuse. In French … Retrieved Evidence:… … In 2010, Gillon was appointed as a deputy member of the Parliament of Norway ……
+Conflict EvidenceFigure 1: An illustration of QA under knowledge con-
+flict via a real example. The detailed illustration can
+be found in Figure 7. (a) refers to the generic rea-
+soning methods that reason on merely retrieved con-
+text. (b) refers to generation-aided reasoning methods
+aided by self-generated knowledge. (c) refers to our
+proposed M ICRO -ACT.
+knowledge often leads to hallucinations and fac-
+tual errors, especially when dealing with domain-
+specific queries or rapidly evolving information.
+To enhance the reliability and factual accuracy of
+LLM responses, retrieval-augmented generation
+(RAG) has emerged as a promising paradigm that
+grounds LLM reasoning with evidence from exter-
+nal knowledge sources (Guu et al., 2020a; Lewis
+et al., 2020; Chen et al., 2024; Ren et al., 2023).
+Despite the promise of RAG, a critical challenge
+emerges when retrieved information contradictsarXiv:2506.05278v1  [cs.CL]  5 Jun 2025
+
+the pre-trained parametric knowledge of LLMs, a
+phenomenon known as knowledge conflict (Wang
+et al., 2024; Jin et al., 2024a). Such conflicts arise
+frequently because retrieval systems may introduce
+noisy, outdated, or even incorrect information (Su
+et al., 2024; Wang et al., 2024; Shi et al., 2024a; Jin
+et al., 2024a), which significantly undermines their
+potential benefits and raises concerns about their
+practical deployment in downstream tasks such as
+question answering (QA).
+Prior works addressing knowledge conflicts fall
+into two distinct categories. The first focuses
+on specialized fine-tuning techniques (Yuan et al.,
+2024; Shi et al., 2024a; Jin et al., 2024b). The sec-
+ond leverages In-Context Learning (ICL), which
+can adapt to new requirements or tasks by provid-
+ing relevant instructions or examples, reducing the
+effort required for re-training or continual train-
+ing. Within the ICL-based category, approaches
+can be further divided into two types: generic rea-
+soning methods that rely solely on retrieved con-
+text, as shown in Figure 1(a), and generation-aided
+reasoning methods that generate the pre-trained
+parametric knowledge of LLMs for explicit knowl-
+edge comparison with retrieved knowledge (Liu
+et al., 2022), as illustrated in Figure 1(b). How-
+ever, these ICL-based methods face three critical
+limitations: (1) heavy reliance on manually crafted
+instructions limits cross-domain adaptability; (2)
+side-by-side comparison fails to capture conflicts at
+different granularity levels, making LLMs vulnera-
+ble to irrelevant contexts (Mirzadeh et al., 2024);
+and (3) those methods meticulously design prompts
+to handle knowledge conflict, which assumes that
+knowledge conflict already exists. This would prob-
+ably lead to a negative impact on performance in
+conflict-free scenarios, which are common in real-
+world applications, raising concerns about their
+practical reliability.
+To address these limitations, we propose
+MICRO -ACT, whose core innovation is its ability
+to dynamically adjust granularity through decom-
+position action: (1) at model level, it automatically
+perceives input complexity preferences for differ-
+ent LLMs, and (2) at action level, it detects context
+granularity of each action and flexibly makes ad-
+justment. As illustrated in Figure 1(c), this adaptive
+approach enables precise conflict detection across
+different granularity levels and reasoning on the
+conflicts underneath the superficial context.
+Extensive experiments on five widely-used
+knowledge conflict benchmark datasets groundedin the QA task (Su et al., 2024; Xie et al., 2024),
+covering diverse knowledge conflict types (mis-
+information, temporal, and semantic conflicts) (Su
+et al., 2024), demonstrate that MICRO -ACTconsis-
+tently outperforms state-of-the-art baselines. More
+importantly, MICRO -ACTalso maintains competi-
+tive performance in conflict-free cases while state-
+of-the-art baselines cannot, which underscores the
+strong robustness of MICRO -ACT. Further analysis
+of complexity detection reveals that MICRO -ACT
+unlocks the potential of LLMs to perceive com-
+plexity and adapt to different environments. And
+we find an interesting phenomenon called “over-
+rationalization” which harms conflict resolution
+and can be mitigated by MICRO -ACTvia locating
+conflict underneath the superficial context.
+These findings validate the effectiveness and ro-
+bustness of MICRO -ACTin resolving knowledge
+conflicts for reliable real-world RAG systems.
+2 Related Work
+Retrieval-Augmented Generation for QA.
+Retrieval-augmented generation (RAG) integrates
+external knowledge sources with language
+generation, improving the fidelity and robustness
+of open-domain QA (Chen et al., 2017; Petroni
+et al., 2019; Asai et al., 2020; Guu et al., 2020b;
+Izacard and Grave, 2021a; Lewis et al., 2020;
+Zhang et al., 2024; Shi et al., 2024b). Subsequent
+efforts have refined retrieval modules and model
+architectures to handle diverse knowledge sources
+and queries more effectively (Karpukhin et al.,
+2020; Izacard and Grave, 2021b; Mao et al., 2021;
+Nakano et al., 2021; Shi et al., 2024c; Izacard et al.,
+2023; Qin et al., 2019, 2018; Conforti et al., 2020;
+Rezaee et al., 2024). Recent techniques explore
+dynamic retrieval strategies, domain adaptation,
+and efficient fine-tuning, further enhancing the
+adaptability and reliability of RAG frameworks
+(Ram et al., 2023; Borgeaud et al., 2022; Liu et al.,
+2024; Zhang et al., 2025).
+Knowledge Conflict. Knowledge conflict sur-
+faces when retrieved evidence disagrees with a
+model’s internal beliefs or when multiple sources
+present mutually inconsistent information, result-
+ing in ambiguous or flawed outputs (Min et al.,
+2020; Lewis et al., 2020; Shuster et al., 2021;
+Wang et al., 2021; Zellers et al., 2019; Tan et al.,
+2024). This challenge becomes acute in evolving
+domains (e.g., current events, medicine, science)
+where timely accuracy is critical (Chen et al., 2021;
+
+Min et al., 2023). Conflicts arise not only between
+retrieved evidence and parametric knowledge but
+also among multiple retrieved documents, demand-
+ing careful reconciliation to avoid misinformation
+and preserve trustworthiness (Thorne et al., 2018;
+Yang et al., 2018; Liang et al., 2023; Gao et al.,
+2023; Shaier et al., 2024; Pham et al., 2024; Fang
+et al., 2024).
+Solutions for Knowledge Conflict. Proposed so-
+lutions generally follow two broad strategies. The
+first modifies internal model parameters or archi-
+tectures to accommodate external evidence more
+consistently (Yuan et al., 2024; Jin et al., 2024b;
+Shi et al., 2024a), though this often assumes that
+retrieved information should uniformly override
+parametric knowledge. The second strategy explic-
+itly identifies and reconciles discrepancies among
+sources via generation-aided mechanisms or iter-
+ative comparison (Wang et al., 2023; Liu et al.,
+2022). While these methods can reduce factual er-
+rors, they often rely on ad-hoc instructions or sim-
+ple pairwise comparisons that fail to capture subtle
+conflicts. Recent work underscores the need for
+more principled, robust approaches that integrate
+nuanced reasoning and validation, improving both
+fidelity and explainability in retrieval-augmented
+QA (Xu et al., 2024).
+3 Preliminaries
+3.1 RAG for QA
+Retrieval-Augmented Generation (RAG) combines
+a LLM with an external retrieval module. It pro-
+ceeds in two key phases: a Retrieval Phase that
+returns a set of relevant evidence and a Generation
+Phase where the LLM produces the final answer
+conditioned on this evidence.
+Retrieval Phase. Given a query q, a retrieval
+function R(·)returns a set of textual fragments
+E={e1, . . . , e m}, where mis the number of frag-
+ments. Each fragment eiprovides potentially rele-
+vant information related to q.
+Generation Phase. LetMΘbe the LLM param-
+eterized by Θ. We define the parametric knowledge
+for the query qas:
+Kp(q) =MΘ(q). (1)
+We use Kr(ei)to represent the knowledge con-
+tained in each retrieved fragment ei. The finalanswer is produced by conditioning on both the
+parametric and retrieved knowledge:
+Ans(q) =MΘ 
+q|Kp(q),{Kr(ei)}m
+i=1
+.(2)
+3.2 Knowledge Conflict
+Aknowledge conflict arises when Kp(q)and some
+Kr(ei)are factually or logically inconsistent. For-
+mally, there exists at least one ei∈ Esuch that:
+Kp(q)̸≈Kr(ei), (3)
+where̸≈denotes a factual or logical inconsistency.
+Algorithm 1 MICRO -ACTPseudocode
+1:Input: query q, external corpus E, LLM MΘ,
+turn budget N
+2:Retrieve: KP←ELICIT (q),Kr←
+RETRIEVE (E, q)
+3:H←∅
+4:fort= 1toNdo
+5: Tt←M Θ(· |H);At←SELECT (Tt)
+6: Ot←
+
+REASON (·)
+ASSERT (·)
+DECOMPOSE (·)
+7: H←H∪ {Tt, At, Ot}
+8: ifOt=conflict ∧COMPLEX then
+9: At←DECOMPOSE ▷force split
+10: end if
+11: ifSOLVED (H)then break
+12: end if
+13:end for
+14:Return MΘ(ANSWER |H)
+4 Methodology
+We introduce MICRO -ACT, a framework that en-
+ables Large Language Models (LLMs) to automati-
+cally identify and resolve detailed points of knowl-
+edge conflict. MICRO -ACTcomprises three key
+components: (1) a hierarchical action space (Sec-
+tion 4.1), (2) a Reasoning Body (Section 4.2), and
+(3) Adaptive Granularity and Optimization strate-
+gies (Section 5 and 6). The detailed pseudocode of
+MICRO -ACTcan be found in Algorithm 1.
+4.1 Hierarchical Action Space
+Establishing a well-structured action space allows
+LLMs to more efficiently invoke planning strate-
+gies (Yao et al., 2024). To this end, we define the
+action space as a structured integration of three key
+
+ELICIT  
+LLM KnowledgeQueston : What position 
+does Paul Eugène Gillon 
+currently or formerly hold?
+Retrieved Conflict Evidence : 
+Paul Eugène Gillon is a French 
+official who … … In 2010, 
+Gillon was appointed as a 
+deputy member of the 
+Parliament of Norway … A 
+study in Journal … …Parametric  Knowledge : 
+Recently, … ... in French 
+administration,  Eugène 
+Gillon has been officially 
+appointed as the General 
+Secretary of the Prefecture 
+of Creuse  … … According to 
+sources within the French 
+government  … …Queston : What position 
+does Paul Eugène Gillon 
+currently or formerly hold?
+Conflict Evidence : Paul Eugène 
+Gillon is a French official who … … 
+In 2010 , Gillon was appointed as a 
+Deputy member of the Parliament of 
+Norway … A study in Journal … …
+Parametric  Knowledge : Recently , 
+… ... in French administration,  
+Eugène Gillon has been officially 
+appointed as the General Secretary 
+of the Prefecture of Creuse  … … 
+According to sources within the 
+French  government  … …ASSERT
+Conflict  & Parametric  
+Knowledge
+ASSERT  
+(Deputy member , 
+General Secretary )ASSERT  
+(Norway , 
+French )ASSERT  
+(2010 , 
+Recently )
+Conflict Conflict ConflictDECOMPOSE … …
+Figure 2: An illustration of handling knowledge conflict in QA task. Actions highlighted with blue color represent
+navigational actions; Red color represents functional actions; and green color represents the bridging action. "... ..."
+represents multiple interplayed actions are folded for simplicity.
+categories: (1) navigational actions , (2) functional
+actions , and (3) bridging actions , with the decom-
+position component serving as the cornerstone for
+refining context granularity of actions.
+Navigational Actions. They focus on exploring
+the environment and obtaining more information
+as the prerequisite of effective reasoning (Gu et al.,
+2024). Navigational actions include eliciting para-
+metric knowledge from the LLM and getting the
+reasoning path of a QA task based on input context.
+LetAnavrepresent navigational actions . Specifi-
+cally, we formally define the elicit action in Eq. 4.
+ELICIT (q) =Kp(q) =MΘ(q). (4)
+And we formally define the action to get the
+reasoning path PKin Eq. 5.
+REASON (K) =PK=Mp
+Θ(K), (5)
+where Mp
+Θ(K)represents prompting LLM
+parametrized by Θto generate a reasoning path
+onK. And Kis the input knowledge representa-
+tion either from Kp(q)or from Kr(E).
+Functional Actions. They address conflict detec-
+tion either between retrieved evidence and LLM
+parametric knowledge or between their reasoning
+paths generated by the navigational action. Once
+relevant information is prepared, functional actions ,
+denoted by Afunc, detect conflict among them. For-
+mally, we define the assert action to implement
+this logic, which is a conflict verification action
+and checks the consistency between Kp(q)and a
+particular Kr(E)in Eq. 6.
+ASSERT 
+Kp
+s(q), Kr
+s(E)
+=δi, (6)
+where δi∈ {0,1}. Ifδi= 1, a conflict is detected.
+AndKp
+s(q)∈Kp(q)means Kp
+s(q)is a partial
+knowledge of Kp(q).Bridging-Action. It is responsible for dynami-
+cally optimizing granularity by decomposing ac-
+tions when needed. A side-by-side assert action
+may fail to detect subtle conflicts embedded in
+lengthy, noisy contexts. To address this, we intro-
+duce the decomposition action , collected in Amicro,
+which can refine the granularity of analysis. Sup-
+pose an ASSERT (·)action on complex knowledge
+context is represented as ASSERT 
+Kp(q), Kr(E)
+.
+A decomposition action can decompose this com-
+plex reasoning into smaller, manageable action
+steps, as shown in Eq. 7.
+DECOMPOSE (ASSERT 
+Kp
+s(q), Kr
+s(E
+)
+={ASSERT 
+Kp
+s′(q), Kr
+s′(E)
+, . . .},(7)
+where Kp
+s(q)∈Kp(q)is a partial knowledge
+ofKp(q). And Kp
+s′(q)refers to Kp
+s(Kp
+s(q)),
+which means the finer-grained partial knowledge of
+Kp
+s(q). Each newly created sub-action deals with
+a further fragment of the evidence, increasing the
+likelihood of revealing fine-grained conflicts. It
+will decompose the action until LLM has enough
+confidence or reach the max turn limit.
+4.2 Reasoning Body
+We integrate our hierarchical action space with the
+ReAct process (Yao et al., 2023) to teach LLM inte-
+grate our hierarchical action space to automatically
+handle knowledge conflicts. At step t, the LLM
+first produces a thought Tt:
+Tt∼ M Θ(Tt|Ht−1), (8)
+where Ht−1is the accumulated history of all
+thoughts, actions, and observations before step t.
+Conditioned on Ht−1and the newly generated
+thought Tt, the model selects an action At:
+At∼ M Θ(At|Ht−1, Tt). (9)
+
+This action, executed in the changing environment
+(for example, the knowledge has been decomposed
+at different granularity), yields an observation Ot:
+Ot=Env(At).The history is then updated:
+Ht=Ht−1∪ {Tt, At, Ot}. (10)
+This iterative process continues, adjusting gran-
+ularity via decomposition actions whenever subtle
+conflicts require finer checks. After Nsteps, the
+final answer is generated:
+Af∼ M Θ(Af|HN). (11)
+By dynamically selecting navigational, func-
+tional, and decomposition actions, this procedure
+ensures subtle knowledge conflicts are detected
+and mitigated, improving the reliability of the final
+output. An example illustration of this process is
+shown in Figure 2.
+5 Understanding Complexity-Driven
+Knowledge Decomposition Dynamics
+To gain a deeper understanding of how model bridg-
+ing actions are related to complexity, we follow
+(Murty et al., 2024) to characterize the distribution
+of the newly inferred knowledge representation at
+turntbased on trajectory over previous t−1turns.
+Specifically, we define:
+pt(Kn) =
+X
+c′X
+Kpmodel(Kn|c′)pverify(c′|K)pt−1(K),
+(12)
+where Kis current knowledge representation, Kn
+is the newly inferred knowledge representation (of-
+ten obtained by decomposing K),cis the ground-
+truth knowledge conflict, and c′is a potentially in-
+correct knowledge conflict identified by the model.
+pmodel means the distribution on generate new
+knowledge. pverify means the distribution on gener-
+ating conflicts. Detailed derivation can be found in
+Appendix D.
+In this formulation, the termP
+Kpverify(c′|K)
+increases with the complexity (e.g., longer context,
+harder domain and etc.), resulting in higher verifi-
+cation probabilities and an increased risk of inac-
+curate conflict detection. AndP
+c′pmodel(Kn|c′)
+depends on the LLM compatibility. A less capable
+LLM is more likely to be influenced by erroneous
+conflicts ( c′), thereby requiring further decomposi-
+tion and pushing pk(Kn)higher. Section 7.5 shows
+more details about how these factors drive proac-
+tive decomposition across models.6 Preventing Infinite Decomposition
+While hierarchical reasoning is essential for resolv-
+ing complex conflicts, an unconstrained recursive
+process could, in principle, keep splitting a con-
+text. Building upon the probabilistic dynamics in
+Eq.(12), we show that MICRO -ACTcan prevent
+infinite decomposition, and we complement this
+theoretical safeguard with a hard maximum turn
+budget.
+Complexity-Aware Stopping Criterion. LetCt
+denote the latent complexity score of the current
+context after tturns. A decomposition step is trig-
+gered only when Ct> τ, where τrepresents the
+minimum complexity the underlying LLM can han-
+dle confidently. Because each decomposition short-
+ens the context length and narrows its semantic
+scope, the following strict inequality holds:
+Ct+1<Ct,∀t≥0. (13)
+Define
+Tτ= min
+t| Ct≤τ	
+. (14)
+By Eq. (13),Tτis finite, and once reached we have
+pt(Kn) = 0 ; no further actions in the DECOM -
+POSE branch will be sampled. In other words, the
+process is self-regularising : an LLM that already
+“understands” the context (small Ct) simply refuses
+to split it further.
+7 Experiments
+7.1 Experiment Settings
+Datasets. We evaluate MICRO -ACTon five
+benchmark datasets drawn from two comprehen-
+sive collections: ConflictBank and KRE. Conflict-
+Bank (Su et al., 2024) provides three specialized
+datasets targeting distinct conflict types: misin-
+formation ,temporal discrepancies, and seman-
+ticdivergences between retrieved and parametric
+knowledge. From KRE (Ying et al., 2023), we
+utilize MuSiQue_KRE and SQuAD_KRE, derived
+from MuSiQue (Trivedi et al., 2022) and SQuAD
+v2.0 (Rajpurkar et al., 2018) respectively. These
+datasets feature multiple-choice questions with gen-
+erated explanations supporting incorrect choices,
+creating controlled scenarios for examining rea-
+soning conflicts. Due to the limitation of com-
+putational resources, we randomly sampled 3000
+data in ConflictBank and 2000 data in KRE dataset
+across all features, and corrected any errors found.
+
+PromptingGPT-4o GPT-4o-mini LLaMA-3.1-70B LLaMA-3.1-8B
+ConflictBank KRE ConflictBank KRE ConflictBank KRE ConflictBank KRE
+Generic Reasoning
+End-to-End QA 5.40 43.80 2.77 31.10 3.07 14.50 2.53 9.55
+Few-Shot QA 6.30 45.65 2.83 33.30 3.87 15.20 3.13 10.30
+Chain-of-Thought (Wei et al., 2022) 6.43 44.35 3.00 36.50 1.40 29.45 2.13 24.50
+Generation-aided Reasoning
+Self-Ask (Press et al., 2023) 3.13 41.45 2.57 24.90 3.33 23.65 2.77 18.65
+Comparative (Wang et al., 2023) 11.70 33.95 2.10 23.85 4.53 25.25 3.87 19.80
+GKP (Liu et al., 2022) 15.40 55.30 17.53 44.45 15.83 43.55 6.83 32.75
+MICRO -ACT(ours) 22.30 (↑6.90) 59.50 (↑4.20) 26.93 (↑9.40) 51.10 (↑6.65) 26.50 (↑10.67) 54.90 (↑11.35) 18.30 (↑11.47) 46.60 (↑13.85)
+Table 1: The average results of Question Answering under Knowledge Conflict on ConflictBank and KRE with
+GPT-4o-mini, GPT-4o, LLaMA-3.1-70B and LLaMA-3.1-8B. The performance is on average over its sub-datasets.
+(underline denotes the previous SOTA performance; bold denotes the best performance; the improvement ( ↑) is
+measured against the previous SOTA performing method.)
+Metrics & Models. Following existing knowl-
+edge conflict works (Xie et al., 2024; Su et al.,
+2024; Wang et al., 2023; Shi et al., 2024a), we
+measure knowledge conflict in QA task by employ-
+ing QA accuracy as our primary evaluation metric.
+Specifically, the answer format of QA is multiple-
+choice. If LLMs successfully resolve knowledge
+conflict, they will choose the correct answer instead
+of the negative answer supported by the conflict
+(wrong) knowledge (Su et al., 2024).
+In our experiments, we use GPT-4o, GPT-
+4o-mini (OpenAI, 2023), LLaMA-3.1-70B and
+LLaMA-3.1-8B (Dubey et al., 2024) as the back-
+bone LLMs.
+Compared Methods. We evaluate MICRO -ACT
+against two categories of ICL-based approaches:
+generic reasoning methods that reason on retrieved
+evidence, including end-to-end QA, few-shot QA,
+and COT (Wei et al., 2022); and generation-aided
+reasoning methods that reason with self-generated
+content of LLMs, including Self-Ask (Press et al.,
+2023), GKP (Liu et al., 2022), and Compara-
+tive (Wang et al., 2023). We evaluate these methods
+across all five datasets from ConflictBank and KRE.
+Prompts and implementation details can be found
+in Appendix G.
+Implementation. We implement MICRO -ACT
+using zero-shot prompting without task-specific
+customization. To ensure reproducibility, we
+maintain consistent parameters across all exper-
+iments: temperature = 0, top-p = 1, and maximum
+generation length = 512 tokens ( max_tokens
+for closed-source LLMs, max_new_tokens for
+open-source models). We utilize the Hugging Face
+Transformers library for open-source model infer-
+ence. All experiments with open-source models
+are conducted on 4 NVIDIA A100 GPUs (80GB),
+while closed-source models are accessed via theirrespective API endpoints.
+Figure 3: The detailed performance of MICRO -ACT
+across all 3 conflict types with GPT-4o-mini.
+7.2 Main Results
+We summarize the performance of MICRO -ACT
+and various baseline methods on ConflictBank and
+KRE in Table 1. And detailed performance com-
+parison across all three conflict types (i.e., mis-
+information, temporal, and semantic) is shown in
+Figure 3.
+MICRO -ACTsurpasses all baseline approaches
+across all tested LLMs. Notably, MICRO -ACT
+improves over the previous SOTA method by up
+to 9.40% on ConflictBank and 6.65% on KRE
+for GPT-4o-mini, and by 11.47% and 13.85% on
+LLaMA-3.1-8B, respectively. Results across all 5
+datasets and 3 conflict types, confirm the superior
+capability of MICRO -ACTin handling knowledge
+conflict and suggest that such superior capability is
+not model-specific.
+
+7.3 Over-Rationalization Issue
+In our experiments, we observed an intriguing phe-
+nomenon: when presented with both conflicting
+evidence and LLMs parametric knowledge, LLMs
+sometimes attempt to support all contradictory in-
+formation as equally valid . We characterize this
+behavior as “ over-rationalization ”, which is a ten-
+dency to find complex justifications that make con-
+tradictory evidence appear compatible. Surpris-
+ingly, more capable models like GPT-4o exhibit
+this behavior more frequently than GPT-4o-mini,
+leading to performance degradation in GKP as
+shown in Table 1.
+Furthermore, we observe that the issue of “over-
+rationalization” is strongly associated with the type
+of conflict, occurring more frequently in tempo-
+ral and semantic conflicts. Unlike misinformation-
+based conflicts, where conflicts are typically ex-
+plicit and directly presented in the context, the tem-
+poral and semantic conflicts are often implicit be-
+neath the superficial context, misleading LLMs to
+rationalize both sides of conflict. A detailed case
+analysis is in Section 7.8.
+However, MICRO -ACTcan “visualize” the un-
+derlying reasoning path via dynamic decomposi-
+tion to pinpoint finer-grained conflict and focus
+on those nuanced conflicts underneath the super-
+ficial meaning of context . Those conflicts cannot
+be effectively detected through simple side-by-side
+comparisons used by baseline methods. As illus-
+trated in Figure 3, MICRO -ACTachieves a more
+significant performance improvement over base-
+lines specifically in the Temporal andSemantic
+conflict types. Detailed analysis is in Appendix B.
+ConflictBank MuSiQue_KRE SQuAD_KRE80%85%90%95%100%Accuracy (%)End-to-End
+COTComparative
+self-askGKP
+Micro-Act
+Figure 4: The performance of MICRO -ACTand base-
+lines using GPT-4o-mini under QA task without knowl-
+edge conflict .
+7.4 Robustness Under Conflict-Free Scenarios
+Many conflict resolution methods assume the pres-
+ence of knowledge conflicts. However, in real-world applications, it is often impossible to pre-
+determine whether retrieved content conflicts with
+the parametric knowledge of LLMs, making robust-
+ness in conflict-free scenarios crucial.
+As shown in Figure 4, existing approaches face
+a trade-off. Generic reasoning methods like end-
+to-end and COT achieve high accuracy in conflict-
+free cases but degrade significantly (by 70-95%)
+when conflicts arise. And generation-aided meth-
+ods such as GKP improve conflict resolution but
+exhibit lower accuracy in conflict-free cases.
+MICRO -ACTovercomes this limitation by
+achieving state-of-the-art performance in conflict
+scenarios with over 24% performance gain and
+showing robustness with only sacrificing less than
+2% accuracy in conflict-free cases, compared with
+the end-to-end or self-ask baseline. Rather than in-
+troducing biases to favor certain evidence sources,
+MICRO -ACThelps models automatically identify
+and analyze potential conflicts through structured
+action space with decomposition, enabling robust
+performance regardless of whether conflicts exist.
+7.5 Complexity Perception Analysis
+To understand how MICRO -ACTadapts its decom-
+position strategy to different complexity levels, we
+answer 3 research questions (RQs).
+RQ1: How do we objectively measure input com-
+plexity? We select three complementary metrics
+to comprehensively and objectively measure input
+complexity: (1) context length captures informa-
+tion volume; (2) domain difficulty reflects inherent
+reasoning challenges; and (3) perplexity quantifies
+language uncertainty (Li et al., 2024a,b; Jelinek
+et al., 1977). As shown in Figure 5, these metrics
+provide a systematic way to evaluate how differ-
+ent LLMs adapt the decomposition strategies to
+varying complexity levels.
+RQ2: Does decomposition behavior show some
+patterns across different complexity dimen-
+sions? Figure 5, we observe consistent adaptation
+patterns within all LLMs. For example, as for the
+context length shown in Figure 5(a), the decompo-
+sition rate increases dramatically from 15% (0-100
+tokens) to 95% (400+ tokens). All three complex-
+ity dimensions exhibit similar trends, where higher
+complexity consistently triggers more frequent de-
+composition. This consistency demonstrates the
+ability of MICRO -ACTto effectively detect com-
+plexity and dynamically adjust granularity via de-
+composition to reduce complexity.
+
+[0,100) [100,200) [200,300) [300,400) [400,Inf)
+/glyph1197umber of Tokens (Bins)020406080Decompose Percentage (%)GPT-4o-mini
+GPT-4o(a) Different Context Length
+Facts Law Geography Economic Math
+Domains020406080100Decompose Percentage (%)GPT-4o-mini
+GPT-4o (b) Different Question Domains
+[0, 10) [10, 20) [20, 30) [30, 40) [40, Inf)
+Perplexity (Bins)020406080100Decompose Percentage (%)GPT-4o-mini
+GPT-4o (c) Different Context Perplexity
+Figure 5: The visual comparisons of the DECOMPOSE action utilization percentage in different complexity, including
+different context length, question domains and perplexity using GPT-4o-mini and GPT-4o. The detailed calculation
+of perplexity can be found in Appendix C.
+RQ3: Do different LLMs share the same under-
+standing of complexity? The results in Figure 5
+show that GPT-4o-mini constantly calls decompo-
+sition action more frequently across all complexity
+dimensions, revealing different complexity toler-
+ance between GPT-4o and GPT-4o-mini, as dis-
+cussed in Section 5. Rather than requiring manual
+complexity adjustments for each LLM, MICRO -
+ACTautomatically perceives the complexity and
+dynamically adapts for different LLMs. This adap-
+tive behavior enables robust performance across
+different LLMs without model-specific tuning. For
+example, as shown in Table 1, although LLaMA-
+3.1-8B is smaller in size and less capable than
+LLaMA-3.1-70B, MICRO -ACTcan still maintain
+robust performance via more decompose actions
+to adjust complexity, compared with GKP’s deep
+performance drop. More analysis is in Appendix F.
+Mis-Information Temporal Semantic10%20%30%Accuracy (%)GPT-4o
+LLaMA-3.1-70BGemini-2.5-flash-thinking
+o3-mini
+Figure 6: The performance of MICRO -ACTusing gen-
+eral LLMs and reasoning LLMs on 300 randomly sam-
+pled data for each conflict type.
+7.6 General LLMs vs. Reasoning LLMs
+As illustrated in Figure 6, the general-purpose
+LLMs (GPT-4o and Llama-3.1-70B) cluster to-gether and attain comparatively low scores on all
+three conflict categories. In contrast, the reasoning-
+oriented models, Gemini-2.5-flash-thinking and
+o3-mini, form the top tier and consistently out-
+perform the general models. The gap is most
+pronounced for misinformation conflicts, which
+are more amenable to reasoning-based resolu-
+tion. For temporal and semantic conflicts, the
+gap narrows because over-rationalization issues
+arises more often, as discussed in detail in Sec-
+tion 7.3. In summary, stronger reasoning capabil-
+ity markedly boosts the performance of MICRO -
+ACT. Although it also increases susceptibility to
+over-rationalization, MICRO -ACTcan effectively
+mitigate this issue and still surpasses the general
+models.
+METHOD MIS-INFO. T EMPORAL SEMANTIC
+MICRO -ACT 26.1 27.9 24.9
+w/o Navigational Actions 18.4 (↓7.7) 18.5 (↓9.4) 15.7 (↓9.2)
+w/o Functional Actions 13.8 (↓12.3) 15.2 (↓12.7) 13.3 (↓11.6)
+w/o DECOMPOSE Action 4.2 (↓21.9) 4.5(↓23.4) 0.8(↓24.1)
+Table 2: Ablation study of MICRO -ACTin three datasets
+(conflict types) of ConflictBank. The numbers represent
+the accuracy in percentage. ↓is an absolute decrease.
+7.7 Ablation Study
+Table 2 presents an ablation study across all con-
+flict types of ConflictBank. Navigational and Func-
+tional actions serve as essential building blocks for
+conflict resolution, with their removal causing sig-
+nificant performance drops (9.4% for navigational
+and 12.7% for functional actions). While these
+actions are necessary for basic operations like con-
+text navigation and knowledge comparison, their
+
+Question: What position does Paul Eugène Gillon currently or formerly hold?Retrieved Evidence:LLM Parametric Knowledge:Paul Eugène Gillon is a French official who … … In 2010, … Gillon was appointed as a deputy member of the Parliament of Norway … A study published in the Journal of European Studies in 2012 found that … …Recently, ... in French administration, … … Eugène Gillon has been officially appointed as the General Secretary of the Prefecture of Creuse … According to sources within the French government, Gillon's appointment … …Micro-Act:
+I find the following conflicts:1. Different Positions Held: ASSERT(Deputy member, General Secretary)2. Geographic Conflict: ASSERT( Norway, France)3. Timeline Discrepancy: ASSERT( 2010, Recently)
+All evidence confirm that Gillon is French.  à So not likely to be a Norway politician. “2010” indicates a long time till now.“Recently” indicates a current position. So, I choose “A. General Secretary.”ICL-based Solutions:Baselines:I find the conflict in: Retrieved Evidence vs. LLM Parametric Knowledge 
+Don’t know which one is true.So, I choose “D. None of above. ” FurtherReasoningFigure 7: A case study of MICRO -ACTand baselines models under a real knowledge conflict case. MICRO -ACT
+can pinpoint fine-grained conflict points instead of being distracted by irrelevant context.
+effectiveness heavily depends on appropriate input
+granularity. Without proper guidance on the input
+granularity of those actions, the model struggles to
+maintain consistent performance, especially with
+complex contexts.
+Decomposition action dramatically improves
+performance by dynamically adjusting input granu-
+larity for other actions. Its removal causes the most
+severe degradation (over 20% performance drop),
+highlighting its crucial role. Through iterative de-
+composition, MICRO -ACTcontinuously refines in-
+puts of other actions until they find the optimal
+granularity level where navigational and functional
+actions can operate most effectively. As discussed
+in Section 5, MICRO -ACTeffectively elicits the
+latent ability of LLMs to perceive complexity and
+adapt to different environments. This adaptive pro-
+cess enhances the confidence of MICRO -ACTby
+ensuring all action components receive fine-grained
+information aligned with its capability, leading to
+higher accuracy in complex cases.
+7.8 Case Study
+In this case study, we demonstrate how MICRO -
+ACTidentifies nuanced conflicts underneath the
+superficial meaning of context which can hardly
+be located by simple side-by-side comparisons
+that baselines use. Consider the question “ What
+position does Paul Eugène Gillon currently or
+formerly hold? ”, where the retrieved context
+conflicts with LLM parametric knowledge as
+shown in Figure 7. MICRO -ACTcan identify the
+different time references ( 2010 vs.recently )
+and location ( Norway vs.France ). Then apply
+step-by-step reasoning to find the underlying
+conflicts beyond thesuperficial context: (1)
+Majority consensus suggests he is from France ,
+notNorway . (2) 2010 indicates a very longappointment, which is less likely compared with a
+recent appointment, given the question: What
+position does Paul Eugéne Gillon
+currently or formerly hold? (3) And
+finally, determine that Paul Eugéne Gillon
+wasrecently appointed as a French politician
+then answer the question correctly.
+8 Cost Analysis
+MICRO -ACTincurs a modest computational cost,
+where on ConflictBank it processes roughly 2.8
+times more input tokens and 1.3 times more output
+tokens than the strongest baseline (GKP), trans-
+lating to only $0.008 extra per GPT-4o query and
+$0.0005 with GPT-4o-mini, while inference latency
+rises by 0.6 s and 0.3 s respectively. Crucially, these
+overheads appear only when genuine conflicts trig-
+ger deeper decomposition; conflict-free questions
+finish as quickly as the baseline. Given the substan-
+tial gains in conflict-resolution accuracy reported
+in Table 1, the marginal cost and delay are accept-
+able for real-world RAG deployments. Detailed
+token, cost, and timing breakdowns are provided in
+Appendix A.
+9 Conclusion
+We proposed MICRO -ACT, a framework that
+addresses knowledge conflicts in RAG systems
+through hierarchical action decomposition. By
+automatically perceiving context complexity and
+breaking down comparisons into fine-grained
+steps, MICRO -ACTovercomes the limitations
+of simple side-by-side comparisons for example
+theover-rationalization issue. Extensive experi-
+ments demonstrate its effectiveness across multi-
+ple datasets and conflict types, while maintaining
+strong robustness in non-conflict scenarios, making
+it particularly valuable for real-world RAG.
+
+10 Limitations
+While MICRO -ACTdemonstrates strong perfor-
+mance in knowledge conflict resolution, several
+limitations warrant discussion. First, our MICRO -
+ACTneeds additional intermediate steps to effec-
+tively pinpoint the conflicts underneath the super-
+ficial meaning of context, which can hardly be
+located by simple side-by-side comparisons that
+baselines use. Although baselines like end-to-end
+and COT (Wei et al., 2022) are lightweight, their
+poor performance in knowledge conflict harms the
+effectiveness of RAG systems. We believe the ef-
+ficiency should be considered after good perfor-
+mance. As detailed analyzed in Appendix A, the
+extra overhead is relatively small and our analysis
+demonstrates that MICRO -ACT’s modest overhead
+is justified by its significantly enhanced conflict
+resolution performance. Second, our current evalu-
+ation focuses primarily on English language con-
+texts. The effectiveness of decomposition strategies
+might vary across different languages and cultural
+contexts.
+Nevertheless, our work represents an important
+milestone in knowledge conflict resolution, estab-
+lishing a strong foundation for future research in
+this critical area.
+11 Acknowledgement
+Reynold Cheng, Nan Huo, Jinyang Li, and Ge
+Qu are supported by the Hong Kong Jockey Club
+Charities Trust (Project 260920140), the Univer-
+sity of Hong Kong (Project 2409100399), the
+HKU Outstanding Research Student Supervisor
+Award 2022-23, and the HKU Faculty Exchange
+Award 2024 (Faculty of Engineering). Bowen
+Qin was supported by National Science and Tech-
+nology Major Project (Project 2022ZD0116306).
+Chenhao Ma was partially supported by NSFC
+under Grant 62302421, Basic and Applied Ba-
+sic Research Fund in Guangdong Province under
+Grant 2023A1515011280, 2025A1515010439, Ant
+Group through CCF-Ant Research Fund, Shen-
+zhen Research Institute of Big Data under grant
+SIF20240004, and the Guangdong Provincial Key
+Laboratory of Big Data Computing, The Chinese
+University of Hong Kong, Shenzhen.
+12 Ethical Statement
+We prioritize ethical considerations throughout our
+research process. During data collection and pre-
+processing, we carefully filtered out examples con-taining sensitive, biased, or potentially harmful
+content to ensure our evaluation focuses on con-
+structive knowledge resolution scenarios. Our in-
+context learning approach requires no additional
+training of language models, significantly reducing
+the environmental impact compared to fine-tuning
+methods. This aligns with growing concerns about
+the carbon footprint of AI research. Furthermore,
+all datasets used in this work are publicly available,
+ensuring reproducibility.
+References
+Adam Asai, Kazuma Hashimoto, Hannaneh Hajishirzi,
+Richard Socher, and Caiming Xiong. 2020. Learning
+to retrieve reasoning paths over wikipedia graph for
+question answering. In International Conference on
+Learning Representations (ICLR) .
+Sebastian Borgeaud, Arthur Mensch, Jordan Hoff-
+mann, Trevor Cai, Eliza Rutherford, Katie Milli-
+can, George Bm Van Den Driessche, Jean-Baptiste
+Lespiau, Bogdan Damoc, Aidan Clark, et al. 2022.
+Improving language models by retrieving from tril-
+lions of tokens. In International conference on ma-
+chine learning , pages 2206–2240. PMLR.
+Yupeng Chang, Xu Wang, Jindong Wang, Yuan Wu,
+Linyi Yang, Kaijie Zhu, Hao Chen, Xiaoyuan Yi,
+Cunxiang Wang, Yidong Wang, et al. 2024. A sur-
+vey on evaluation of large language models. ACM
+Transactions on Intelligent Systems and Technology ,
+15(3):1–45.
+Danqi Chen, Adam Fisch, Jason Weston, and Antoine
+Bordes. 2017. Reading wikipedia to answer open-
+domain questions. In Proceedings of the 55th Annual
+Meeting of the Association for Computational Lin-
+guistics, ACL 2017, Vancouver, Canada, July 30 -
+August 4, Volume 1: Long Papers , pages 1870–1879.
+Jiawei Chen, Hongyu Lin, Xianpei Han, and Le Sun.
+2024. Benchmarking large language models in
+retrieval-augmented generation. In Thirty-Eighth
+AAAI Conference on Artificial Intelligence, AAAI
+2024, Thirty-Sixth Conference on Innovative Applica-
+tions of Artificial Intelligence, IAAI 2024, Fourteenth
+Symposium on Educational Advances in Artificial
+Intelligence, EAAI 2014, February 20-27, 2024, Van-
+couver, Canada , pages 17754–17762. AAAI Press.
+Sihao Chen, Fan Zhang, Kazoo Sone, and Dan Roth.
+2021. Improving faithfulness in abstractive sum-
+marization with contrast candidate generation and
+selection. In Proceedings of the 2021 Conference
+of the North American Chapter of the Association
+for Computational Linguistics: Human Language
+Technologies , pages 5935–5941.
+Costanza Conforti, Jakob Berndt, Mohammad Taher
+Pilehvar, Chryssi Giannitsarou, Flavio Toxvaerd, and
+Nigel Collier. 2020. Stander: An expert-annotated
+
+dataset for news stance detection and evidence re-
+trieval. In Findings of the Association for Computa-
+tional Linguistics: EMNLP 2020 , pages 4086–4101.
+Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey,
+Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman,
+Akhil Mathur, Alan Schelten, Amy Yang, and et al.
+Angela Fan. 2024. The llama 3 herd of models.
+ArXiv , abs/2407.21783.
+Tianqing Fang, Zhaowei Wang, Wenxuan Zhou, Hong-
+ming Zhang, Yangqiu Song, and Muhao Chen. 2024.
+Getting sick after seeing a doctor? diagnosing and
+mitigating knowledge conflicts in event temporal rea-
+soning. In Findings of the Association for Computa-
+tional Linguistics: NAACL 2024 , pages 3846–3868.
+Joseph L Fleiss. 1971. Measuring nominal scale agree-
+ment among many raters. Psychological bulletin ,
+76(5):378.
+Luyu Gao, Zhuyun Dai, Panupong Pasupat, Anthony
+Chen, Arun Tejasvi Chaganty, Yicheng Fan, Vincent
+Zhao, Ni Lao, Hongrae Lee, Da-Cheng Juan, et al.
+2023. Rarr: Researching and revising what language
+models say, using language models. In Proceedings
+of the 61st Annual Meeting of the Association for
+Computational Linguistics (Volume 1: Long Papers) ,
+pages 16477–16508.
+Yu Gu, Yiheng Shu, Hao Yu, Xiao Liu, Yuxiao Dong,
+Jie Tang, Jayanth Srinivasa, Hugo Latapie, and Yu Su.
+2024. Middleware for llms: Tools are instrumental
+for language agents in complex environments. arXiv
+preprint arXiv:2402.14672 .
+Kelvin Guu, Kenton Lee, Zora Tung, Panupong Pasupat,
+and Mingwei Chang. 2020a. Retrieval augmented
+language model pre-training. In International confer-
+ence on machine learning , pages 3929–3938. PMLR.
+Kelvin Guu, Kenton Lee, Zora Tung, Panupong Pasupat,
+and Mingwei Chang. 2020b. Retrieval augmented
+language model pre-training. In International confer-
+ence on machine learning , pages 3929–3938. PMLR.
+Gautier Izacard and Édouard Grave. 2021a. Leveraging
+passage retrieval with generative models for open do-
+main question answering. In Proceedings of the 16th
+Conference of the European Chapter of the Associ-
+ation for Computational Linguistics: Main Volume ,
+pages 874–880.
+Gautier Izacard and Edouard Grave. 2021b. Leveraging
+passage retrieval with generative models for open do-
+main question answering. In Proceedings of the 16th
+Conference of the European Chapter of the Associ-
+ation for Computational Linguistics (EACL) , pages
+874–880.
+Gautier Izacard, Patrick Lewis, Maria Lomeli, Lucas
+Hosseini, Fabio Petroni, Timo Schick, Jane Dwivedi-
+Yu, Armand Joulin, Sebastian Riedel, and Edouard
+Grave. 2023. Atlas: Few-shot learning with retrieval
+augmented language models. Journal of Machine
+Learning Research , 24(251):1–43.Fred Jelinek, Robert L Mercer, Lalit R Bahl, and
+James K Baker. 1977. Perplexity—a measure of the
+difficulty of speech recognition tasks. The Journal of
+the Acoustical Society of America , 62(S1):S63–S63.
+Zhuoran Jin, Pengfei Cao, Yubo Chen, Kang Liu, Xiao-
+jian Jiang, Jiexin Xu, Qiuxia Li, and Jun Zhao. 2024a.
+Tug-of-war between knowledge: Exploring and re-
+solving knowledge conflicts in retrieval-augmented
+language models. arXiv preprint arXiv:2402.14409 .
+Zhuoran Jin, Pengfei Cao, Hongbang Yuan, Yubo Chen,
+Jiexin Xu, Huaijun Li, Xiaojian Jiang, Kang Liu,
+and Jun Zhao. 2024b. Cutting off the head ends the
+conflict: A mechanism for interpreting and mitigat-
+ing knowledge conflicts in language models. arXiv
+preprint arXiv:2402.18154 .
+Vladimir Karpukhin, Barlas Oguz, Sewon Min, Patrick
+Lewis, Ledell Wu, Sergey Edunov, Danqi Chen, and
+Wen-tau Yih. 2020. Dense passage retrieval for open-
+domain question answering. In Proceedings of the
+2020 Conference on Empirical Methods in Natural
+Language Processing (EMNLP) , pages 6769–6781.
+Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio
+Petroni, Vladimir Karpukhin, Naman Goyal, Hein-
+rich Küttler, Mike Lewis, Wen-tau Yih, Tim Rock-
+täschel, et al. 2020. Retrieval-augmented generation
+for knowledge-intensive nlp tasks. Advances in Neu-
+ral Information Processing Systems , 33:9459–9474.
+Jinyang Li, Binyuan Hui, Ge Qu, Jiaxi Yang, Binhua
+Li, Bowen Li, Bailin Wang, Bowen Qin, Ruiying
+Geng, Nan Huo, et al. 2024a. Can llm already serve
+as a database interface? a big bench for large-scale
+database grounded text-to-sqls. Advances in Neural
+Information Processing Systems , 36.
+Jinyang Li, Nan Huo, Yan Gao, Jiayi Shi, Yingxiu Zhao,
+Ge Qu, Yurong Wu, Chenhao Ma, Jian-Guang Lou,
+and Reynold Cheng. 2024b. Tapilot-crossing: Bench-
+marking and evolving llms towards interactive data
+analysis agents. arXiv preprint arXiv:2403.05307 .
+Percy Liang, Rishi Bommasani, Tony Lee, Dimitris
+Tsipras, Dilara Soylu, Michihiro Yasunaga, Yian
+Zhang, Deepak Narayanan, Yuhuai Wu, Ananya Ku-
+mar, Benjamin Newman, Binhang Yuan, Bobby Yan,
+Ce Zhang, Christian Cosgrove, Christopher D. Man-
+ning, Christopher Ré, Diana Acosta-Navas, Drew A.
+Hudson, Eric Zelikman, Esin Durmus, Faisal Ladhak,
+Frieda Rong, Hongyu Ren, Huaxiu Yao, Jue Wang,
+Keshav Santhanam, Laurel J. Orr, Lucia Zheng, Mert
+Yüksekgönül, Mirac Suzgun, Nathan Kim, Neel
+Guha, Niladri S. Chatterji, Omar Khattab, Peter
+Henderson, Qian Huang, Ryan Chi, Sang Michael
+Xie, Shibani Santurkar, Surya Ganguli, Tatsunori
+Hashimoto, Thomas Icard, Tianyi Zhang, Vishrav
+Chaudhary, William Wang, Xuechen Li, Yifan Mai,
+Yuhui Zhang, and Yuta Koreeda. 2023. Holistic eval-
+uation of language models. Trans. Mach. Learn. Res. ,
+2023.
+Jiacheng Liu, Alisa Liu, Ximing Lu, Sean Welleck, Pe-
+ter West, Ronan Le Bras, Yejin Choi, and Hannaneh
+
+Hajishirzi. 2022. Generated knowledge prompting
+for commonsense reasoning. In Proceedings of the
+60th Annual Meeting of the Association for Compu-
+tational Linguistics (Volume 1: Long Papers) , pages
+3154–3169.
+Nelson F Liu, Kevin Lin, John Hewitt, Ashwin Paran-
+jape, Michele Bevilacqua, Fabio Petroni, and Percy
+Liang. 2024. Lost in the middle: How language mod-
+els use long contexts. Transactions of the Association
+for Computational Linguistics , 12:157–173.
+Yuning Mao, Pengcheng He, Xiaodong Liu, Yelong
+Shen, Jianfeng Gao, Jiawei Han, and Weizhu Chen.
+2021. Generation-augmented retrieval for open-
+domain question answering. In Proceedings of the
+59th Annual Meeting of the Association for Compu-
+tational Linguistics and the 11th International Joint
+Conference on Natural Language Processing (Vol-
+ume 1: Long Papers) , pages 4089–4100.
+Sewon Min, Kalpesh Krishna, Xinxi Lyu, Mike Lewis,
+Wen-tau Yih, Pang Koh, Mohit Iyyer, Luke Zettle-
+moyer, and Hannaneh Hajishirzi. 2023. Factscore:
+Fine-grained atomic evaluation of factual precision
+in long form text generation. In Proceedings of the
+2023 Conference on Empirical Methods in Natural
+Language Processing , pages 12076–12100.
+Sewon Min, Julian Michael, Hannaneh Hajishirzi, and
+Luke Zettlemoyer. 2020. Ambigqa: Answering am-
+biguous open-domain questions. In Proceedings of
+the 2020 Conference on Empirical Methods in Nat-
+ural Language Processing (EMNLP) , pages 5783–
+5797.
+Iman Mirzadeh, Keivan Alizadeh, Hooman Shahrokhi,
+Oncel Tuzel, Samy Bengio, and Mehrdad Farajtabar.
+2024. Gsm-symbolic: Understanding the limitations
+of mathematical reasoning in large language models.
+arXiv preprint arXiv:2410.05229 .
+Shikhar Murty, Christopher D. Manning, Peter Shaw,
+Mandar Joshi, and Kenton Lee. 2024. BAGEL: boot-
+strapping agents by guiding exploration with lan-
+guage. In Forty-first International Conference on
+Machine Learning, ICML 2024, Vienna, Austria, July
+21-27, 2024 . OpenReview.net.
+Reiichiro Nakano, Jacob Hilton, Suchir Balaji, Jeff Wu,
+Long Ouyang, Christina Kim, Christopher Hesse,
+Shantanu Jain, Vineet Kosaraju, William Saunders,
+et al. 2021. Webgpt: Browser-assisted question-
+answering with human feedback. arXiv preprint
+arXiv:2112.09332 .
+OpenAI. 2023. Gpt-4 technical report. Technical report,
+OpenAI.
+Fabio Petroni, Tim Rocktäschel, Patrick Lewis, Anton
+Bakhtin, Yuxiang Wu, Alexander Miller, and Sebas-
+tian Riedel. 2019. Language models as knowledge
+bases? In Proceedings of the 2019 Conference on
+Empirical Methods in Natural Language Processing ,
+pages 2463–2473.Quang Pham, Hoang Ngo, Luu Anh Tuan, and Dat Quoc
+Nguyen. 2024. Who’s who: Large language mod-
+els meet knowledge conflicts in practice. In Find-
+ings of the Association for Computational Linguis-
+tics: EMNLP 2024 , pages 10142–10151.
+Ofir Press, Muru Zhang, Sewon Min, Ludwig Schmidt,
+Noah A Smith, and Mike Lewis. 2023. Measuring
+and narrowing the compositionality gap in language
+models. In Findings of the Association for Computa-
+tional Linguistics: EMNLP 2023 , pages 5687–5711.
+Libo Qin, Yijia Liu, Wanxiang Che, Haoyang Wen,
+Yangming Li, and Ting Liu. 2019. Entity-consistent
+end-to-end task-oriented dialogue system with kb re-
+triever. In Proceedings of the 2019 Conference on
+Empirical Methods in Natural Language Processing
+and the 9th International Joint Conference on Natu-
+ral Language Processing (EMNLP-IJCNLP) , pages
+133–142.
+Libo Qin, Yijia Liu, Wanxiang Che, Haoyang Wen, and
+Ting Liu. 2018. End-to-end task-oriented dialogue
+system with distantly supervised knowledge base re-
+triever. In Chinese Computational Linguistics and
+Natural Language Processing Based on Naturally
+Annotated Big Data: 17th China National Confer-
+ence, CCL 2018, and 6th International Symposium,
+NLP-NABD 2018, Changsha, China, October 19–21,
+2018, Proceedings 17 , pages 238–249. Springer.
+Pranav Rajpurkar, Robin Jia, and Percy Liang. 2018.
+Know what you don’t know: Unanswerable questions
+for squad. In Proceedings of the 56th Annual Meet-
+ing of the Association for Computational Linguistics,
+ACL 2018, Melbourne, Australia, July 15-20, 2018,
+Volume 2: Short Papers , pages 784–789. Association
+for Computational Linguistics.
+Ori Ram, Yoav Levine, Itay Dalmedigos, Dor Muhlgay,
+Amnon Shashua, Kevin Leyton-Brown, and Yoav
+Shoham. 2023. In-context retrieval-augmented lan-
+guage models. Transactions of the Association for
+Computational Linguistics , 11:1316–1331.
+Ruiyang Ren, Yuhao Wang, Yingqi Qu, Wayne Xin
+Zhao, Jing Liu, Hao Tian, Hua Wu, Ji-Rong Wen,
+and Haifeng Wang. 2023. Investigating the fac-
+tual knowledge boundary of large language mod-
+els with retrieval augmentation. arXiv preprint
+arXiv:2307.11019 .
+Kiamehr Rezaee, Jose Camacho-Collados, and Moham-
+mad Taher Pilehvar. 2024. Tweetter: A benchmark
+for target entity retrieval on twitter without knowl-
+edge bases. In Proceedings of the 2024 Joint In-
+ternational Conference on Computational Linguis-
+tics, Language Resources and Evaluation (LREC-
+COLING 2024) , pages 16890–16896.
+Sagi Shaier, Ari Kobren, and Philip Ogren. 2024. Adap-
+tive question answering: Enhancing language model
+proficiency for addressing knowledge conflicts with
+source citations. In Proceedings of the 2024 Con-
+ference on Empirical Methods in Natural Language
+Processing , pages 17226–17239.
+
+Dan Shi, Renren Jin, Tianhao Shen, Weilong Dong, Xin-
+wei Wu, and Deyi Xiong. 2024a. Ircan: Mitigating
+knowledge conflicts in llm generation via identify-
+ing and reweighting context-aware neurons. arXiv
+preprint arXiv:2406.18406 .
+Qi Shi, Han Cui, Haofeng Wang, Qingfu Zhu, Wanx-
+iang Che, and Ting Liu. 2024b. Exploring hybrid
+question answering via program-based prompting.
+arXiv preprint arXiv:2402.10812 .
+Weijia Shi, Sewon Min, Michihiro Yasunaga, Min-
+joon Seo, Richard James, Mike Lewis, Luke Zettle-
+moyer, and Wen-tau Yih. 2024c. Replug: Retrieval-
+augmented black-box language models. In Proceed-
+ings of the 2024 Conference of the North American
+Chapter of the Association for Computational Lin-
+guistics: Human Language Technologies (Volume 1:
+Long Papers) , pages 8364–8377.
+Kurt Shuster, Spencer Poff, Moya Chen, Douwe Kiela,
+and Jason Weston. 2021. Retrieval augmentation
+reduces hallucination in conversation. In Findings
+of the Association for Computational Linguistics:
+EMNLP 2021 , pages 3784–3803.
+Zhaochen Su, Jun Zhang, Xiaoye Qu, Tong Zhu, Yanshu
+Li, Jiashuo Sun, Juntao Li, Min Zhang, and Yu Cheng.
+2024. Conflictbank: A benchmark for evaluating
+the influence of knowledge conflicts in llm. arXiv
+preprint arXiv:2408.12076 .
+Hexiang Tan, Fei Sun, Wanli Yang, Yuanzhuo Wang,
+Qi Cao, and Xueqi Cheng. 2024. Blinded by gen-
+erated contexts: How language models merge gen-
+erated and retrieved contexts when knowledge con-
+flicts? In Proceedings of the 62nd Annual Meeting of
+the Association for Computational Linguistics (Vol-
+ume 1: Long Papers) , pages 6207–6227.
+James Thorne, Andreas Vlachos, Christos
+Christodoulopoulos, and Arpit Mittal. 2018.
+Fever: a large-scale dataset for fact extraction and
+verification. In Proceedings of the 2018 Conference
+of the North American Chapter of the Association
+for Computational Linguistics: Human Language
+Technologies, Volume 1 (Long Papers) , pages
+809–819.
+Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot,
+and Ashish Sabharwal. 2022. Musique: Multi-
+hop questions via single-hop question composition.
+Trans. Assoc. Comput. Linguistics , 10:539–554.
+Fei Wang, Xingchen Wan, Ruoxi Sun, Jiefeng Chen,
+and Sercan Ö Arık. 2024. Astute rag: Overcom-
+ing imperfect retrieval augmentation and knowledge
+conflicts for large language models. arXiv preprint
+arXiv:2410.07176 .
+Shuohang Wang, Yang Liu, Yichong Xu, Chenguang
+Zhu, and Michael Zeng. 2021. Want to reduce label-
+ing cost? gpt-3 can help. In Findings of the Associ-
+ation for Computational Linguistics: EMNLP 2021 ,
+pages 4195–4205.Yike Wang, Shangbin Feng, Heng Wang, Weijia
+Shi, Vidhisha Balachandran, Tianxing He, and Yu-
+lia Tsvetkov. 2023. Resolving knowledge con-
+flicts in large language models. arXiv preprint
+arXiv:2310.00935 .
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou,
+et al. 2022. Chain-of-thought prompting elicits rea-
+soning in large language models. Advances in Neural
+Information Processing Systems , 35:24824–24837.
+Jian Xie, Kai Zhang, Jiangjie Chen, Renze Lou, and
+Yu Su. 2024. Adaptive chameleon or stubborn sloth:
+Revealing the behavior of large language models in
+knowledge conflicts. In The Twelfth International
+Conference on Learning Representations, ICLR 2024,
+Vienna, Austria, May 7-11, 2024 .
+Rongwu Xu, Zehan Qi, Zhijiang Guo, Cunxiang Wang,
+Hongru Wang, Yue Zhang, and Wei Xu. 2024.
+Knowledge conflicts for llms: A survey. In Proceed-
+ings of the 2024 Conference on Empirical Methods in
+Natural Language Processing, EMNLP 2024, Miami,
+FL, USA, November 12-16, 2024 , pages 8541–8565.
+Association for Computational Linguistics.
+John Yang, Carlos E Jimenez, Alexander Wettig, Kil-
+ian Lieret, Shunyu Yao, Karthik Narasimhan, and
+Ofir Press. 2024. Swe-agent: Agent-computer inter-
+faces enable automated software engineering. arXiv
+preprint arXiv:2405.15793 .
+Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Bengio,
+William Cohen, Ruslan Salakhutdinov, and Christo-
+pher D Manning. 2018. Hotpotqa: A dataset for
+diverse, explainable multi-hop question answering.
+InProceedings of the 2018 Conference on Empiri-
+cal Methods in Natural Language Processing , pages
+2369–2380.
+Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran,
+Tom Griffiths, Yuan Cao, and Karthik Narasimhan.
+2024. Tree of thoughts: Deliberate problem solving
+with large language models. Advances in Neural
+Information Processing Systems , 36.
+Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak
+Shafran, Karthik R. Narasimhan, and Yuan Cao. 2023.
+React: Synergizing reasoning and acting in language
+models. In The Eleventh International Conference
+on Learning Representations, ICLR 2023, Kigali,
+Rwanda, May 1-5, 2023 . OpenReview.net.
+Jiahao Ying, Yixin Cao, Kai Xiong, Yidong He, Long
+Cui, and Yongbin Liu. 2023. Intuitive or dependent?
+investigating llms’ robustness to conflicting prompts.
+arXiv preprint arXiv:2309.17415 .
+Xiaowei Yuan, Zhao Yang, Yequan Wang, Shengping
+Liu, Jun Zhao, and Kang Liu. 2024. Discerning
+and resolving knowledge conflicts through adaptive
+decoding with contextual information-entropy con-
+straint. arXiv preprint arXiv:2402.11893 .
+
+Rowan Zellers, Ari Holtzman, Hannah Rashkin,
+Yonatan Bisk, Ali Farhadi, Franziska Roesner, and
+Yejin Choi. 2019. Defending against neural fake
+news. Advances in neural information processing
+systems , 32.
+Xuanliang Zhang, Dingzirui Wang, Longxu Dou,
+Qingfu Zhu, and Wanxiang Che. 2025. Murre: Multi-
+hop table retrieval with removal for open-domain text-
+to-sql. In Proceedings of the 31st International Con-
+ference on Computational Linguistics , pages 5789–
+5806.
+Xuanliang Zhang, Dingzirui Wang, Baoxin Wang,
+Longxu Dou, Xinyuan Lu, Keyan Xu, Dayong Wu,
+Qingfu Zhu, and Wanxiang Che. 2024. Scitat: A
+question answering benchmark for scientific tables
+and text covering diverse reasoning types. arXiv
+preprint arXiv:2412.11757 .
+Wayne Xin Zhao, Kun Zhou, Junyi Li, Tianyi Tang,
+Xiaolei Wang, Yupeng Hou, Yingqian Min, Beichen
+Zhang, Junjie Zhang, Zican Dong, et al. 2023. A
+survey of large language models. arXiv preprint
+arXiv:2303.18223 .
+
+A Cost-Performance Trade-Off
+In this section, we provide a detailed cost and la-
+tency analysis on the ConflictBank dataset, compar-
+ingMICRO -ACTwith the most powerful baseline
+within Generic Reasoning and Generation-aided
+Reasoning groups (i.e., COT and GKP) using GPT-
+4o and GPT-4o-mini, as shown in Table 3 and Ta-
+ble 4.
+A.1 Token Usage and Monetary Cost
+•Input Tokens: Because MICRO -ACTdynam-
+ically decomposes conflicts, it initiates addi-
+tional turns to resolve contradictions. As a
+result, it uses about 2.8 ×more input tokens
+than GKP.
+•Output Tokens: MICRO -ACT’s output length
+is roughly 1.3 ×higher than GKP. Although it
+writes multiple short intermediate responses,
+the final output does not explode in length, as
+the output of each intermediate step tends to
+be relatively concise.
+•Overall Cost: The cost difference comes
+to an additional $0.008 per query for GPT-
+4o. For GPT-4o-mini, the extra cost is only
+$0.0005 per query, which is fairly small.
+A.2 Inference Time Overhead
+•GPT-4o: MICRO -ACTtakes 1.9s on average,
+which is about 0.6s longer than GKP (1.3s).
+•GPT-4o-mini: MICRO -ACTrequires 0.7s on
+average, 0.3s longer than GKP (0.4s).
+•The latency shown above is not using multi-
+threading. If we use multi-threading, the extra
+inference latency will be further reduced sig-
+nificantly.
+This additional overhead comes from the extra
+decomposition steps in scenarios where conflicts
+are actually perceived by MICRO -ACT. However,
+for conflict-free queries, MICRO -ACTperforms
+fewer steps, avoiding this overhead.
+A.3 Justification of Additional Overhead
+1.Significant Performance Gain: As shown in
+our main experiments, MICRO -ACTachieves
+notable improvements in resolving knowl-
+edge conflicts. It indicates that our dynamic
+decomposition approach is essential for de-
+tecting finer-grained conflicts.2.Adaptive Depth: MICRO -ACTonly needs
+deeper decomposition when a conflict is per-
+ceived, which is necessary to locate the under-
+lying conflicts that baselines cannot find. On
+conflict-free questions, it quickly finalizes the
+answer, keeping cost and latency low.
+3.Practical Applicability: In many real-world
+applications such as SWE-agent (Yang et al.,
+2024), baseline query costs more than $2 per
+query. We believe that an additional $0.008 in
+GPT-4o (and $0.0005 for GPT-4o-mini) and
+0.6 extra seconds in GPT-4o (and 0.3 sec for
+GPT-4o-mini) per query is acceptable given
+the significantly improved performance, espe-
+cially for real-world scenarios.
+We believe this analysis demonstrates that
+MICRO -ACT’smodest overhead is justified by
+itssignificantly enhanced conflict resolution capa-
+bilities.
+Mis-Information Temporal Semantic10%20%30%40%50%Over-Rationalization RatioGKP (LLaMA-3.1-8B)
+Micro-Act (LLaMA-3.1-8B)GKP (LLaMA-3.1-70B)
+Micro-Act (LLaMA-3.1-70B)
+Figure 8: The Over-Rationalization Ratio of GKP and
+MICRO -ACTusing LLaMA-3.1-8B and LLaMA-3.1-
+70B (lower is better).
+B Over-Rationalization Issue and
+Analysis
+In this section, we present a quantitative inves-
+tigation on 600 queries (200 from each con-
+flict type) in the ConflictBank dataset, comparing
+GKP (strongest baseline) and MICRO -ACTon two
+LLMs: LLaMA-3.1-70B and GPT-4o-mini. We
+measure the proportion of queries in which the
+model exhibits over-rationalization (i.e., rationaliz-
+ing contradictory facts in their step-by-step chain-
+of-thought reasoning).
+From Figure 8, it is clear that all models ex-
+hibit a higher ratio of over-rationalization under
+temporal and semantic conflict types, as these two
+types are more easily rationalized. For example,
+as shown in Figure 7, conflicting knowledge about
+whether Paul Eugéne Gillon was appointed
+
+Method Avg. # Turns Avg. Input Tokens Avg. Output Tokens Avg. Cost (USD) Avg. Inference Time (s)
+COT 2.0 652 421 $0.006 0.9
+GKP 2.0 1182 856 $0.012 1.3
+MICRO -ACT 3.4 3345 1137 $0.020 1.9
+Table 3: Cost analysis on GPT-4o.
+Method Avg. # Turns Avg. Input Tokens Avg. Output Tokens Avg. Cost (USD) Avg. Inference Time (s)
+COT 2.0 689 469 $0.0004 0.3
+GKP 2.0 1239 894 $0.0007 0.4
+MICRO -ACT 3.6 3532 1289 $0.0013 0.7
+Table 4: Cost analysis on GPT-4o-mini.
+in2010 or more recently can both be reason-
+able, making it difficult for the model to rely on
+retrieved evidence or LLM parametric knowledge.
+The GKP method shows a higher tendency to
+rationalize these conflicts, as LLMs are easily dis-
+tracted by complex context (Mirzadeh et al., 2024).
+This leads to failure in identifying the fine-grained
+conflicts underneath. In contrast, MICRO -ACTdy-
+namically decomposes the complex context to re-
+duce its complexity and identifies the conflicts be-
+hind the superficial context. This enables MICRO -
+ACTto pinpoint conflict points and reason on them
+for correct answers.
+B.1 A More Detailed Case Study
+In Figure 7, an example of contradictory infor-
+mation regarding Paul Eugéne Gillon being
+appointed in 2010 versus a more recent appoint-
+ment is shown. Additionally, incorrect evidence
+suggests he might be a politician in Norway . By
+iteratively decomposing the knowledge, MICRO -
+ACTis able to:
+1.Identify the conflicting time references ( 2010
+vs.recently ) and location ( Norway vs.
+France ).
+2.Apply step-by-step reasoning to find the un-
+derlying conflicts beyond the superficial con-
+text:
+•Majority consensus suggests he is from
+France , notNorway .
+•2010 indicates a very long appointment,
+which is less likely compared with a
+recent appointment, given the ques-
+tion:What position does Paul
+Eugéne Gillon currently or
+formerly hold?3.Finally, determine that Paul Eugéne
+Gillon wasrecently appointed as a
+French politician and correctly answer the
+question.
+These nuanced conflicts are hidden beneath the
+superficial meaning of context and can hardly be
+detected by simple side-by-side comparisons used
+by baseline models.
+C Perplexity Calculation
+In this section, we provide a detailed explanation of
+how to compute the perplexity (PPL) of a given text
+using the GPT-2 language model, which is not any
+of the language models used in our work. The aim
+is to provide an objective measurement of knowl-
+edge context complexity. Perplexity is a widely
+used metric for evaluating the quality of language
+models, indicating how well the model predicts a
+sample of text (Jelinek et al., 1977). In this work,
+by fixing the language model to be GPT-2, we use
+PPL to measure the complexity of context text. A
+lower perplexity value generally corresponds to a
+lower context text complexity.
+C.1 Formal Definition of Perplexity
+Let the text be represented as a sequence of tokens:
+W=w1, w2, . . . , w N, (15)
+where each wiis a token (e.g., a subword unit as
+utilized by GPT-2).
+Given a language model that estimates the prob-
+ability of each token conditioned on all previous
+tokens, the joint probability of the sequence Wcan
+be factorized as:
+P(W) =NY
+i=1P(wi|w1, w2, . . . , w i−1).(16)
+
+The perplexity of the sequence Wunder the
+model is defined as:
+PPL(W) =
+exp 
+−1
+NNX
+i=1lnP(wi|w1, w2, . . . , w i−1)!
+.
+(17)
+In other terms, if we use base-2 logarithms:
+PPL(W) = 2−1
+NPN
+i=1log2P(wi|w1,...,w i−1).(18)
+The perplexity can be interpreted as the effective
+average branching factor of the language model. A
+perfectly predicting model (one that assigns proba-
+bility 1 to the observed sequence) would achieve a
+perplexity of 1.
+C.2 GPT-2-Based Computation
+GPT-2 is a Transformer-based language model
+trained on large-scale text data. It provides a proba-
+bility distribution over the next token wigiven the
+previous tokens (w1, . . . , w i−1). Formally, GPT-2
+implements:
+P(wi|w1, . . . , w i−1) =softmax (hi−1We)wi,
+(19)
+where hi−1is the hidden state vector pro-
+duced by the Transformer after processing tokens
+w1, . . . , w i−1, andWeis the token embedding ma-
+trix used to map hidden states to logits over the
+vocabulary. The softmax function converts these
+logits into probabilities.
+C.3 Practical Steps for Perplexity Calculation
+To compute perplexity using GPT-2 in practice, one
+would proceed as follows:
+Tokenization. Convert the raw text into GPT-2
+compatible tokens:
+Texttokenizer− − − − − → (w1, w2, . . . , w N). (20)
+Model Inference. For each token wi, feed the
+preceding tokens (w1, w2, . . . , w i−1)into GPT-2
+to obtain:
+P(wi|w1, . . . , w i−1). (21)
+This is done by running the model Mwhich is
+GPT-2 forward pass:
+(h1, h2, . . . , h i−1) =M(w1, w2, . . . , w i−1)
+(22)
+and then applying the softmax over the output logits
+to get the probability of wi.Log Probability Computation. The next step
+is to extract lnP(wi|w1, . . . , w i−1)from the
+model’s output distribution.
+Summation and Normalization. Compute the
+average negative log-probability:
+−1
+NNX
+i=1lnP(wi|w1, . . . , w i−1). (23)
+Exponentiation Take the exponential of this
+value to obtain the perplexity:
+PPL(W) =
+exp 
+−1
+NNX
+i=1lnP(wi|w1, . . . , w i−1)!
+.(24)
+DMathematical Derivation of Knowledge
+Representation Transitions
+In this section, we present a formal derivation of the
+knowledge representation transition process. We
+begin by defining the key probability distributions:
+•pt(Kn): The distribution of knowledge repre-
+sentation at step t
+•pmodel(Kn|K): The probability of the model
+generating new knowledge representation Kn
+from previous state K
+•pverify (c|Kn): The probability of the verifier
+generating conflict detection result cbased on
+knowledge representation Kn
+Following the principles of probabilistic state
+transitions, we can establish two fundamental equa-
+tions:
+D.1 Knowledge Representation Transition
+Equation
+The transition to new knowledge representation can
+be expressed as:
+pt(Kn) =X
+c′pmodel(Kn|c′)·pt−1(c′)(25)
+This equation represents how new knowledge
+representation are derived from previous conflict
+detection results.
+
+D.2 Conflict Detection Equation
+The probability distribution of conflict detection
+results is given by:
+pt−1(c′) =X
+Kpverify (c′|K)·pt−1(K)(26)
+This captures how conflict detection results are
+generated based on previous knowledge represen-
+tation.
+D.3 Combined Transition Model
+Substituting the conflict detection equation into the
+state transition equation yields:
+pt(Kn) =X
+c′pmodel(Kn|c′)
+·[X
+Kpverify (c′|K)·pt−1(K)](27)
+Rearranging the summation order:
+pt(Kn) =X
+c′X
+Kpmodel(Kn|c′)
+·pverify (c′|K)·pt−1(K)(28)
+D.4 Bayesian Formulation
+Applying Bayes’ rule to transform pverify (c′|K)
+intopverify (K|c′):
+pt(Kn) =X
+K,c′pt−1(K)
+·pverify (K|c′)·pmodel(Kn|c′)(29)
+This final form encapsulates three key compo-
+nents:
+•pt−1(K): Distribution of previous knowledge
+representation
+•pverify (K|c′): Verifier’s evaluation of knowl-
+edge
+•pmodel(Kn|c′): Model’s probability of gener-
+ating new knowledge based on conflict detec-
+tion
+This formulation provides a comprehensive
+mathematical framework for analyzing the evolu-
+tion of knowledge representation through iterative
+refinement and verification.E Error Analysis
+To better understand the limitations of MICRO -
+ACT, we conducted a detailed error analysis on
+1,000 randomly sampled examples across all five
+datasets. Our analysis revealed two predominant
+error types:
+Context Distraction (63% of errors) Despite
+our decomposition strategy, LLMs occasionally
+become overwhelmed by complex contexts and de-
+fault to expressing uncertainty ("I don’t know" or
+"Cannot determine"). This typically occurs when
+the context contains multiple interrelated facts or
+complex logical relationships that challenge the
+model’s ability to maintain coherent reasoning
+chains. For instance, in multi-hop reasoning ques-
+tions where evidence pieces are densely connected,
+even decomposed segments may retain inherent
+complexity that exceeds the model’s processing
+capacity.
+Over-reliance on Retrieved Evidence (37% of
+errors) The second major error type manifests
+when LLMs exhibit a strong bias toward retrieved
+evidence, even when it conflicts with their para-
+metric knowledge. This behavior is particularly
+prominent in cases where the retrieved evidence
+appears more specific or detailed than the model’s
+inherent knowledge. Such errors suggest that while
+MICRO -ACTeffectively identifies conflicts, the fi-
+nal resolution step may still be influenced by an
+implicit bias toward explicit external information
+over learned knowledge.
+These findings indicate that while MICRO -ACT
+significantly improves conflict resolution, future
+work should focus on enhancing the model’s abil-
+ity to maintain reasoning clarity in highly complex
+scenarios and developing more balanced weigh-
+ing mechanisms between retrieved and parametric
+knowledge.
+F More Complexity Aspect Analysis
+Besides the complexity aspects discussed in Fig-
+ure 5, we explore how the number of decomposi-
+tion steps (i.e., the number of times MICRO -ACT
+invokes its “DECOMPOSE” action) varies across
+different conflict types. We collect more results on
+temporal, misinformation, and semantic conflicts
+for both GPT-4o and GPT-4o-mini. Below is a
+summary of the average number of decomposition
+steps taken for each conflict category:
+
+Action Expression Description
+DECOMPOSE Action i
+→action 1, action 2Split a complex action i into 
+smaller, manageable steps 
+such as action 1 and action 2.
+ELICIT Query i
+→LLM KnowledgeElicit LLM knowledge about 
+a given query.
+REASON Knowledge i
+→Reasoning PathReason on input knowledge to 
+generate the reasoning path.
+ASSERT Knowledge i, Knowledge j
+→0 or 1Judge whether the two input 
+knowledge have conflict or not.Figure 9: The table of actions in our hierarchical action space.
+Table 5: Average DECOMPOSE action steps per con-
+flict type.
+Conflict Type GPT-4o (Avg. Steps) GPT-4o-mini (Avg. Steps)
+Misinformation 0.8 1.3
+Temporal 1.6 2.2
+Semantic 1.5 2.3
+Temporal and Semantic Conflicts. We can see
+that temporal and semantic conflict types usually
+trigger a higher number of decomposition steps.
+As detailed in Appendix B, these two types are
+more easily to be “over-rationalized” . Thus, more
+decomposition steps are needed to investigate un-
+derneath conflicts and the logic flaws behind the
+superficial context, which looks reasonable.
+Misinformation Conflicts. Misinformation typi-
+cally involves more superficial conflicts , which is
+more intuitive. As a result, fewer DECOMPOSE
+actions are invoked because there is less ambiguity
+in the evidence to untangle.
+Why Decompose More? The observed more de-
+composition is mainly because the nuanced con-
+flicts are underneath the superficial context and
+can hardly be located by simple side-by-side com-
+parisons that baselines use, detailed discussion can
+be found in Appendix B.
+Model Size & Complexity. We observe that
+GPT-4o-mini has a higher decomposition step
+count across all conflict types. Smaller LLMs of-
+ten require additional steps to reduce complexity,
+revealing different complexity tolerance between
+GPT-4o and GPT-4o-mini, as discussed in Sec-
+tion 5. A more detailed discussion can be found in
+Section 7.5, RQ3.This illustrates exactly why andhow MICRO -
+ACT’s dynamic reasoning pipeline triggers addi-
+tional decomposition for temporal and semantic
+conflicts, where potential “over-rationalizations”
+are more likely to arise.
+G Implementation Details
+G.1 Action Details
+All the actions designed in our proposed hierarchi-
+cal action space are illustrated in Table 9.
+G.2 Generic Reasoning Models
+End-to-End QA. The End-to-End QA prompt as
+shown in Figure 10, directly provides the model
+with the question and requests an immediate, self-
+contained answer. It contains no intermediate rea-
+soning instructions, and the model is expected to
+return its best guess in a single generation pass.
+This approach assumes the model’s internal rep-
+resentations are sufficient for reasoning without
+explicitly prompting it to show work.
+Few-Shot QA. The Few-Shot QA prompt as
+shown in Figure 11, includes one or more exam-
+ple QA pairs before presenting the target question.
+These examples help the model align its reasoning
+with the desired output format and style. The pro-
+vided examples are chosen to be representative of
+the question domain and complexity level.
+Chain-of-Thought. The Chain-of-Thought (Wei
+et al., 2022) prompt as shown in Figure 12, in-
+structs the model to show its intermediate reasoning
+steps explicitly. After presenting the question, the
+prompt requests the model to “think aloud” by out-
+lining its reasoning process before concluding with
+
+a final, concise answer. This approach encourages
+the model to form more coherent and justifiable
+solutions.
+G.3 Generation-aided Reasoning Models
+Self-Ask. The Self-Ask (Press et al., 2023)
+prompt as shown in Figure 13, breaks down a com-
+plex question into sub-questions and then prompts
+the model to answer them step-by-step. By itera-
+tively generating and resolving subtasks, the model
+can handle multi-step reasoning tasks more system-
+atically, ultimately consolidating the intermediate
+answers into a final solution.
+Comparative QA. The Comparative QA (Wang
+et al., 2023) prompt as shown in Figure 14, asks
+LLMs generate the answer of the question regard-
+less of the retrieved evidence at first. Then answer
+the question by considering both the retrieved evi-
+dence and the self-generated answer.
+Generation Phase of GKP. In the Generation
+Phase of GKP (Liu et al., 2022), the prompt encour-
+ages the model to generate the knowledge needed
+to answer the given question. The model then lists
+relevant knowledge without yet providing the final
+answer.
+Answering Phase of GKP. Once the self-
+generated knowledge is established, the Answer-
+ing Phase of GKP (Liu et al., 2022) prompt feeds
+the previously generated knowledge back into the
+model. Using this as a guide, the model now pro-
+duces a final answer. This is a two-step process.
+G.4 M ICRO -ACT
+MICRO -ACT.The prompt of our proposed
+MICRO -ACTmodel is shown in Figure 17.
+H Human Evaluation
+To assess the quality and representativeness of our
+1,000-instance samples, we conducted a human
+study with 10 volunteer expert annotators, each
+having substantial experience in QA tasks.
+Evaluation Procedure. For each dataset, we pre-
+sented each annotator with a total of 100 QA items:
+50 randomly drawn from the full dataset and 50
+randomly drawn from the 1,000-instance sample.
+Annotators were blind to which items came from
+which source. Each annotator answered all 100
+questions to the best of their ability.Measurements. We measured annotator accu-
+racy, defined as the proportion of correct answers,
+on both subsets. Across all datasets, the average ac-
+curacy on sample-based QA pairs differed by less
+than 5% from that on the corresponding full-dataset
+pairs. This consistency suggests that the sampled
+subsets do not introduce systematic bias in terms
+of difficulty or content distribution.
+Internal Agreement. To ensure that results were
+not driven by a few outliers, we examined inter-
+nal agreement among the 10 annotators. We com-
+puted Fleiss’ kappa (Fleiss, 1971), which was con-
+sistently above 0.80 for all datasets, indicating sub-
+stantial agreement. In addition, the standard devia-
+tion of accuracy across annotators remained under
+2% for each subset type, reflecting stable and con-
+sistent performance patterns.
+These findings demonstrate that our sampling
+strategy preserves the key characteristics of the
+original datasets, maintaining both content diver-
+sity and difficulty level, and that our evaluation
+results are reliable and robust across multiple in-
+dependent annotators. After the review period, we
+will open-source the sampled datasets for reproduc-
+tion and for researchers to develop more advanced
+methods on knowledge conflict.
+I Model Descriptions
+Our empirical evaluation employs three representa-
+tive language models, each positioned at different
+capability levels.
+GPT-4o. GPT-4o (OpenAI, 2023) is a state-of-
+the-art foundation model that excels at complex rea-
+soning tasks. Our experiments leverage its robust
+instruction-following capabilities and advanced rea-
+soning abilities to evaluate the upper bounds of
+adaptive complexity.
+GPT-4o-mini. GPT-4o-mini (OpenAI, 2023) is
+a balanced model that combines computational ef-
+ficiency with strong reasoning capabilities. This
+model serves as an ideal testbed for examining how
+moderate model capacity influences the granularity
+of knowledge decomposition across varying task
+complexities.
+LLaMA-3.1-70B-Instruct. LLaMA-3.1-70B-
+Instruct (Dubey et al., 2024) is a 70-billion
+parameter large language model built on the
+LLaMA architecture. This instruction-tuned
+variant exhibits strong performance across diverse
+
+NLP tasks, with particular strengths in reasoning
+and coherent text generation.
+LLaMA-3.1-8B-Instruct. LLaMA-3.1-8B-
+Instruct (Dubey et al., 2024) is a 8-billion
+parameter large language model built on the
+LLaMA architecture. This instruction-tuned
+variant exhibits strong performance across diverse
+NLP tasks, with particular strengths in reasoning
+and coherent text generation.
+
+}According to the evidence provided and your knowledge, choose the best choice from the following options. 
+Evidence: {evidence}
+Question: {question}
+{options}
+The answer should be concise and short, not with explanations nor option details. Fill your selected option in **uppercase le tter 
+format** into the template: <a>...</a>, for example <a>H</a>.
+The final answer is: <a>End-to-End Baseline Prompt:Figure 10: The prompt of the End-to-End QA baseline method.
+}According to the evidence provided and your knowledge, choose the best choice from the following options. 
+Evidence: Otters are semi -aquatic mammals that prefer to inhabit areas near water bodies for easy access to drinking water and 
+food.
+Question: Otters enter their new habitat. What happened as a more possible result?
+A. Otters start looking for abalone for food.
+B. They always live by the water so that they can drink water easily.
+The final answer is: <a>A</a>
+According to the evidence provided and your knowledge, choose the best choice from the following options.
+Evidence: Buying a variety of textbooks can provide a wide range of information, making it easier to find specific details qu ickly.
+Question: Lila can find what she wants quickly. What is the more possible cause of this?
+A. Lila bought several kinds of textbooks.
+B. Lila loves classification of her things.
+The final answer is: <a>B</a>
+According to the evidence provided and your knowledge, choose the best choice from the following options.
+Evidence: Hunting cottontails is often associated with drinking rum as a tradition or ritual.
+Question: He got some rum. What is the more possible cause of this?
+A. The worker fremented  some sugar cane with yeast.
+B. Tom went out and want to hunt some cottontails.
+The final answer is: <a>A</a>
+Evidence: {evidence}
+Question: {question}
+{options}
+The final answer is: <a>Few -Shot Baseline Prompt:
+Figure 11: The prompt of the Few-Shot QA baseline method.
+}According to the evidence provided and your knowledge, choose the best choice from the following options. 
+Evidence: {evidence}
+Question: {question}
+{options}
+Please think step by step to answer the question and fill in the template: <t>...</t> with your thoughts. And then generate y our 
+selected option to fill in the template: <a>...</a> in **uppercase letter format**, for example <a>H</a>.
+Step -by-step thought: <t>COT Baseline Prompt:
+Figure 12: The prompt of the COT (Wei et al., 2022) baseline method.
+
+}Answer the question based on the given context and your own knowledge respectively. 
+Format Examples:
+---
+Context: [Some Context]
+Question: [The Given Question]
+Follow up: [You should ask follow up questions.]
+Follow up: [You can ask more than one questions.]
+...
+Answer: <a> E </a>
+---
+You have to generate the final answer about the question after ask several follow -up questions. The answer should be concise 
+and short, not with explanations nor option details. Fill your answer in **uppercase letter format** into the template: <a>.. .</a>.
+---
+Context: {evidence}
+Question: {question}
+{options}
+Follow up:Self-Ask Prompt:Figure 13: The prompt of the Self-Ask (Press et al., 2023) QA baseline method.
+}Generate two answers to the given question: ANSWER1 solely based on the given context and ANSWER2 solely based on your 
+own knowledge. Then based on the two answer give the final answer and fill your final answer in **uppercase letter format** 
+into the template: <a>...</a>, for example <a>H</a>.
+Context: {evidence}
+Question: {question}
+{options}
+Answer the question solely based on the given context.
+Answer:Comparative Prompt:
+Figure 14: The prompt of the comparative (Wang et al., 2023) baseline method.
+}Generate some knowledge about the input.
+Input: {question}
+Knowledge:GKP Prompt (Generation Phase):
+Figure 15: The prompt of the generation phase of GKP (Liu et al., 2022) baseline method.
+
+}You are doing a question answering task with a provided evidences to assist you to answer the question. According to the 
+evidence provided and **your own knowledge**, choose the best choice from the following options.
+# Here is the question: 
+{question}
+{options}
+# Instructions: 
+Please firstly think step by step to answer the question and fill in the template: <t>...</t> with your thought. And then gen erate 
+your selected option to fill in the template: <a>...</a> in **uppercase letter format**. For example:
+---- Example Begins: ----
+# Step -by-step thought: <t>I think firstly we need to ... </t>
+# Answer: <a> E </a>
+---- Example Ends ----
+# Here is the retrieved evidence: 
+{evidence_1}      
+# Here is my own knowledge: 
+{evidence_2}
+# There may be some conflict between the provided evidence and your own knowledge. You are a detective and you MUST find 
+out which side is more reliable based on your knowledge and choose the correct answer of the question!
+You have to think of the provided evidence and also fully consider your answer when disregarding the provided evidence.
+---- Task Begins: ----
+# Step -by-step thought: <t>GKP Prompt (Answer Phase):Figure 16: The prompt of the answering phase of GKP (Liu et al., 2022) baseline method.
+
+}### Task: Knowledge Conflict LocationYou are a detective. When you ask a question, the suspects provide an evidence, which may conflict with your knowledge. Your objective is to determine the answer by identifying and locating any points of conflict. #### Task Guidelines:You have a maximum of **eight turns** to locate all conflict points. In each turn, you may choose **one** of the following actions:Action Choices:1. **knowledge_gen(target: str) -> str**: Input the target question, this function adopts LLM to generate the LLM inherent knowledge about the question. Use in format: **knowledge_gen(target="...")**.2. **reason(evidence: str) -> str**: Input an evidence to generate a step-by-step reasoning path to answer given question based on that evidence. Use in format: **reason(evidence="...")**.3. **decompose(reasoning_step: str) -> list of str**: This action can **ONLY** be used when one reasoning step can be decomposed for **better** analysis and benefiting the QA task. This action can break down a complex reasoning step into smaller, manageable sub-steps. Use in format: **decompose(reasoning_step="...")**.4. **assert(state_left: str, state_right: str) -> bool**: Input two statements to evaluate if they conflict, returning a confidence rating. Use in format: **assert(state_left="...", state_right="...")**. This action should only be used when necessary.5. **terminate()**: Signals the end of the session. Use it **ONLY** when confident in your final answer. Format: **terminate()**.#### Problem-Solving Process:You will alternate between **Thought**, **Action**, and **Observation** phases in each turn. - In the **Thought** section, consider your current information and decide your next step.- In the **Action** section, apply **one** of the four actions listed above.- After each action, you will receive an **Observation** to help guide your next move.**Remember**: You can take only **one action per turn** and have a total of **eight turns** to determine the final answer. When confident in your answer, use **terminate()** to end the session.# Question: {question}{options}# Given evidence: ```given_evidence = ''' {evidence} '''```-------------------------------NOTE: Begin your process now to answer the question above, filling in your action in the template: <f>...</f>.# 8 turns remaining to provide the final answer. In this turn, your task is to generate **Thought** and **Action**. **Do NOT answer question this time!** Please keep your thought brief and focused, and **You MUST choose an action from ['knowledge_gen', 'reason', 'decompose', 'assert', 'terminate'] as describe in the Task Guidelines section above!** Then fill your action in the template '**Action:** <f>...</f>'. You can take previous steps as example. Failure to generate an action will result in strict penalties and you will lose your job!## Turn 1:**Thought:** The evidence is too complex. I want to get the step-by-step reasoning path to answer the question above based on the given evidence for easier analysis.**Action:** <f>reason(evidence=given_evidence)</f>**observation**: Step-by-step reasoning path based on given evidence is list below:[[cot_1]]# 7 turns remaining to provide the final answer. In this turn, your task is to generate **Thought** and **Action**. **Do NOT answer question this time!** Please keep your thought brief and focused, and **You MUST choose an action from ['knowledge_gen', 'reason', 'decompose', 'assert', 'terminate'] as describe in the Task Guidelines section above!** Then fill your action in the template '**Action:** <f>...</f>'. You can take previous steps as example. Failure to generate an action will result in strict penalties and you will lose your job!## Turn 2:**Thought:** Then I want to get the step-by-step reasoning path to answer the question above based on my inherent knowledge. To do this, I want to firstly generate the knowledge based on my inherent pre-trained knowledge.**Action:** <f>knowledge_gen(target="[[question]]")</f>**observation**: My inherent knowledge about this question is:[[evidence_gen]]# 6 turns remaining to provide the final answer. In this turn, your task is to generate **Thought** and **Action**. **Do NOT answer question this time!** Please keep your thought brief and focused, and **You MUST choose an action from ['knowledge_gen', 'reason', 'decompose', 'assert', 'terminate'] as describe in the Task Guidelines section above!** Then fill your action in the template '**Action:** <f>...</f>'. You can take previous steps as example. Failure to generate an action will result in strict penalties and you will lose your job!## Turn 3:**Thought:** Now I want to get the step-by-step reasoning path to answer the question above based on my generate knowledgein previous step.**Action:** <f>reason(evidence="[[evidence_gen]]")</f>**observation**: Step-by-step reasoning path based on model knowledge is list below:[[cot_2]]# 5 turns remaining to provide the final answer. In this turn, your task is to generate **Thought** and **Action**. **Do NOT answer question this time!** Please keep your thought brief and focused, and **You MUST choose an action from ['knowledge_gen', 'reason', 'decompose', 'assert', 'terminate'] as describe in the Task Guidelines section above!** Then fill your action in the template '**Action:** <f>...</f>'. You can take previous steps as example. Failure to generate an action will result in strict penalties and you will lose your job!## Turn 4:**Thought:** Now I have already obtained the two reasoning paths from given evidence in 'Turn 1' and from my inherent knowledge in 'Turn 3' respectively. I must locate all conflict points between them. To do so, I will compare the reasoning steps between them. First, I will check if any key reasoning steps need to be decomposed for clearer comparison. If none do, I will proceed with the reasoning step comparison to locate each conflict point.Micro-Act Prompt (Ours):Figure 17: The prompt of our proposed M ICRO -ACTmethod.
